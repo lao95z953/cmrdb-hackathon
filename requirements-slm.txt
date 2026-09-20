@@ -1,3 +1,4 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
 -r requirements.txt
 transformers>=4.45,<6
 torch>=2.6,<3
