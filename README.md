@@ -75,34 +75,38 @@ docs/model-smoke-test-chn-roberta.md
 
 ## 安裝與快速啟動
 
-專案目前以 Windows 本機展示為主要環境（Python 3.10+）。
+專案目前以 Windows Workstation 展示為主要環境，建議使用 Python 3.12。
 
-### 方式一：一鍵快速啟動（推薦）
+### 方式一：Windows 一鍵啟動（推薦）
 
-專案內建自動化腳本，會自動處理虛擬環境、安裝 CPU 版 PyTorch、產生 `.env` 並啟動伺服器：
+- Command Prompt：雙擊 `run.bat`，或執行 `.\run.bat`
+- PowerShell：執行 `.\run.ps1`
 
-- **Windows 批次檔**：直接雙擊 `run.bat`（或在終端機輸入 `.\run.bat`）
-- **PowerShell**：執行 `.\run.ps1`
+腳本會建立 `.env`、建立或重用 `.venv`、同步 CPU 版 PyTorch 與其他 dependencies，檢查必要 import 後才啟動服務。已存在的虛擬環境也會同步；任一步失敗就停止，不會帶著不完整環境繼續啟動。
 
-### 方式二：使用 uv 一鍵執行
+如果系統有 `uv`，腳本會依 `uv.lock` 安裝鎖定版本；否則退回 Python `venv` 與 `pip`。
 
-若有安裝 `uv`，`pyproject.toml` 已設定好 PyTorch CPU 來源，可直接執行：
+### 方式二：直接使用 uv
 
 ```powershell
-uv run uvicorn mail_guard.api:app --host 127.0.0.1 --port 8000 --reload
+uv sync --locked
+Copy-Item .env.example .env  # 已有 .env 時不要覆蓋
+uv run --locked uvicorn mail_guard.api:app --host 127.0.0.1 --port 8000
 ```
 
-### 方式三：標準手動安裝
+### 方式三：標準 pip 安裝
 
-`requirements-slm.txt` 已內建 PyTorch CPU 索引網址，直接安裝即可（不需要手動輸入額外參數）：
+`requirements-slm.txt` 已加入 PyTorch CPU package index：
 
 ```powershell
-python -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements-slm.txt
+python -m pip install -r requirements-slm.txt
 Copy-Item .env.example .env
-python -m uvicorn mail_guard.api:app --host 127.0.0.1 --port 8000 --reload
+python -m uvicorn mail_guard.api:app --host 127.0.0.1 --port 8000
 ```
+
+第一次分析會從 Hugging Face 下載約 499 MB 的模型權重。
 
 網址：
 
