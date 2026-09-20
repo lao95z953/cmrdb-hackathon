@@ -5,20 +5,15 @@ from .local_rules import LocalRuleAnalyzer
 
 
 def create_analyzer() -> EmailAnalyzer:
-    backend = os.getenv("ANALYZER_BACKEND", "auto").strip().lower()
-    if backend == "hybrid":
-        gemini_api_key = os.getenv("GEMINI_API_KEY")
-        if not gemini_api_key:
-            raise ValueError("ANALYZER_BACKEND=hybrid 時必須設定 GEMINI_API_KEY")
+    """建立單一分析器；預設只使用本機 SLM，不做模型合併。"""
+    backend = os.getenv("ANALYZER_BACKEND", "slm").strip().lower()
 
-        from .gemini_analyzer import GeminiEmailAnalyzer
-        from .hybrid_analyzer import HybridEmailAnalyzer
+    if backend == "slm":
         from .slm_detector import SLMDetector
 
-        return HybridEmailAnalyzer(
-            slm=SLMDetector(),
-            gemini=GeminiEmailAnalyzer(api_key=gemini_api_key),
-        )
+        return SLMDetector()
+    if backend == "local":
+        return LocalRuleAnalyzer()
     if backend == "gemini":
         gemini_api_key = os.getenv("GEMINI_API_KEY")
         if not gemini_api_key:
@@ -26,24 +21,18 @@ def create_analyzer() -> EmailAnalyzer:
         from .gemini_analyzer import GeminiEmailAnalyzer
 
         return GeminiEmailAnalyzer(api_key=gemini_api_key)
-    if backend == "slm":
-        from .slm_detector import SLMDetector
-
-        return SLMDetector()
-    if backend == "local":
-        return LocalRuleAnalyzer()
-    if backend not in {"auto", "openai"}:
-        raise ValueError(
-            "ANALYZER_BACKEND 必須是 auto、openai、gemini、slm、hybrid 或 local"
-        )
-
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        if backend == "openai":
+    if backend == "openai":
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
             raise ValueError("ANALYZER_BACKEND=openai 時必須設定 OPENAI_API_KEY")
-        return LocalRuleAnalyzer()
+        try:
+            from .openai_analyzer import OpenAIEmailAnalyzer
+        except ImportError as exc:
+            raise RuntimeError(
+                "OpenAI 模式需要額外套件，請執行 "
+                "pip install -r requirements-openai.txt"
+            ) from exc
 
-    # 延後載入 SDK，讓無金鑰展示模式也能清楚運作。
-    from .openai_analyzer import OpenAIEmailAnalyzer
+        return OpenAIEmailAnalyzer(api_key=api_key)
 
-    return OpenAIEmailAnalyzer(api_key=api_key)
+    raise ValueError("ANALYZER_BACKEND 必須是 slm、local、openai 或 gemini")

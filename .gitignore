@@ -4,3 +4,4 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .mailguard_state.bin
+*.zip

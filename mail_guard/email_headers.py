@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class EmailHeaders(BaseModel):
-    """提供給 Gemini 進行安全分析的標準化技術標頭。"""
+    """供分析器使用的標準化技術標頭。"""
 
     model_config = ConfigDict(title="郵件標頭資訊")
 

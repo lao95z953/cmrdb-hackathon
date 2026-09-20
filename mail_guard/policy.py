@@ -1,8 +1,27 @@
-from .models import AnalysisResult, ProtectionDecision, RecommendedAction, RiskLevel
+from .models import (
+    AnalysisResult,
+    EmailCategory,
+    ProtectionDecision,
+    RecommendedAction,
+    RiskLevel,
+)
 
 
 def decide_protection(result: AnalysisResult) -> ProtectionDecision:
-    """把 AI 分數轉成確定、可稽核的產品行為。"""
+    """將 SLM 的類別、信任度與風險分數轉成可稽核的產品行為。"""
+
+    if result.category is EmailCategory.UNCERTAIN:
+        return ProtectionDecision(
+            level=RiskLevel.UNCERTAIN,
+            action=RecommendedAction.WARN,
+            color="yellow",
+            warning=(
+                "模型信任度不足，無法可靠判斷這封郵件。"
+                "請檢查寄件者、連結及附件後再操作。"
+            ),
+            links_enabled=True,
+            attachments_enabled=True,
+        )
 
     score = result.risk_score
     if score < 30:
@@ -19,24 +38,17 @@ def decide_protection(result: AnalysisResult) -> ProtectionDecision:
             level=RiskLevel.MEDIUM,
             action=RecommendedAction.WARN,
             color="yellow",
-            warning="AI 判斷這封郵件可能含有垃圾、詐騙或其他可疑資訊，請提高警覺。",
+            warning="SLM 發現可疑訊號，請先確認寄件者與連結再操作。",
             links_enabled=True,
             attachments_enabled=True,
         )
-    if score < 85:
-        return ProtectionDecision(
-            level=RiskLevel.HIGH,
-            action=RecommendedAction.RESTRICT,
-            color="red",
-            warning="這封郵件具有高度風險，請勿隨意點擊連結、下載附件或提供個人資料。",
-            links_enabled=False,
-            attachments_enabled=False,
-        )
     return ProtectionDecision(
-        level=RiskLevel.BLOCKED,
-        action=RecommendedAction.QUARANTINE,
+        level=RiskLevel.HIGH,
+        action=RecommendedAction.RESTRICT,
         color="red",
-        warning="SLM 與雲端 AI 均判斷為明確垃圾或惡意郵件，已移至 Gmail 垃圾桶（可復原）。",
+        warning=(
+            "SLM 判斷這封郵件具有高度風險，請勿點擊連結、下載附件或提供個人資料。"
+        ),
         links_enabled=False,
         attachments_enabled=False,
     )

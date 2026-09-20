@@ -49,9 +49,9 @@ class GmailConnector:
             return
 
         label_name = {
+            RiskLevel.UNCERTAIN: "AI-不確定",
             RiskLevel.MEDIUM: "AI-中度風險",
             RiskLevel.HIGH: "AI-高度風險",
-            RiskLevel.BLOCKED: "AI-明確垃圾",
         }[decision.level]
 
         async with httpx.AsyncClient(timeout=30) as client:
@@ -63,13 +63,6 @@ class GmailConnector:
                 json=body,
             )
             response.raise_for_status()
-            if decision.level is RiskLevel.BLOCKED:
-                # 移至 Gmail 垃圾桶，仍可由使用者復原；絕不永久刪除。
-                response = await client.post(
-                    f"{GMAIL_API}/messages/{email.message_id}/trash",
-                    headers=self.headers,
-                )
-                response.raise_for_status()
 
     async def _get_or_create_label(self, client: httpx.AsyncClient, name: str) -> str:
         response = await client.get(f"{GMAIL_API}/labels", headers=self.headers)
