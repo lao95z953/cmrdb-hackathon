@@ -1,149 +1,175 @@
 # 智慧郵件防護系統
 
-這是一個將「郵件連接」與「AI 判斷」分開的黑客松原型。
+這是黑客松階段的 Gmail 風險分析原型。預設在本機執行單一 SLM，依 phishing 機率與分類信任度套用 Gmail 標籤。系統不再合併多個模型，也不會自動把郵件移至垃圾桶。
 
-## 模組分工
+目前有 Python 後端和 Web UI，沒有 Android App。分類器尚未經過正式資料集驗證，請使用測試信箱。
+
+## 判斷流程
 
 ```text
-Android / Gmail
-      ↓
-mail_guard/email/       只負責取得、正規化、標記郵件
-      ↓ NormalizedEmail
-mail_guard/ai/          只負責判斷內容風險
-      ↓ AnalysisResult
-mail_guard/policy.py    將分數轉成黃／紅色與隔離政策
-      ↓
-Android UI 或 Gmail 標籤
+Gmail
+  ↓
+郵件正規化、URL 與驗證資訊擷取
+  ↓
+本機 SLM 二元分類
+  ├─ phishing probability → risk score
+  └─ winner probability   → confidence
+  ↓
+confidence gate
+  ├─ 低於門檻 → uncertain
+  └─ 高於門檻 → 依 risk score 分級
+  ↓
+Gmail 標籤與 Web UI
 ```
 
-- `mail_guard/email/gmail.py`：Gmail API 連接器。
-- `mail_guard/ai/openai_analyzer.py`：OpenAI Responses API 分析器。
-- `mail_guard/ai/local_rules.py`：沒有 API Key 時的展示模式。
-- `mail_guard/ai/slm_detector.py`：在本機執行小型多語言模型的文字風險偵測器。
-- `mail_guard/policy.py`：固定且可測試的風險門檻。
-- `mail_guard/service.py`：在應用層串接兩邊。
-- `mail_guard/api.py`：提供 Android 可呼叫的 HTTP API。
+主要模組：
 
-## 風險政策
+- `mail_guard/email/gmail.py`：Gmail API 連接器及郵件正規化。
+- `mail_guard/email_headers.py`：擷取安全分析需要的郵件標頭。
+- `mail_guard/ai/slm_detector.py`：本機 SLM、分段分析及信任度判斷。
+- `mail_guard/policy.py`：把模型結果轉成產品動作。
+- `mail_guard/service.py`：串接分析器、政策與郵件連接器。
+- `mail_guard/api.py`：FastAPI、Google OAuth、Web UI 與 HTTP API。
 
-| 分數 | 層級 | 處理 |
-|---:|---|---|
-| 0–29 | 低度 | 正常顯示，不標顏色 |
-| 30–59 | 中度 | 黃色提醒 |
-| 60–84 | 高度 | 紅色提醒，停用連結與附件 |
-| 85–100 | 明確惡意 | 從 Gmail 收件匣移出並加上 `AI-隔離` 標籤 |
+## SLM 輸出如何轉成決策
 
-系統不會永久刪除郵件，避免誤判後無法復原。
+二元模型輸出 phishing probability `p`：
 
-## 啟動
+```text
+risk_score = round(p × 100)
+confidence = max(p, 1 - p)
+```
 
-需要 Python 3.11 以上：
+如果 `confidence` 低於 `SLM_MIN_CONFIDENCE`，郵件會直接進入 `uncertain`，不再用風險分數強迫分類。預設門檻是 0.75。
+
+| 條件 | 層級 | Gmail／UI 動作 |
+|---|---|---|
+| confidence < 0.75 | 不確定 | 黃色提醒，加上 `AI-不確定` |
+| score 0–29 | 低度 | 正常顯示，不加標籤 |
+| score 30–59 | 中度 | 黃色提醒，加上 `AI-中度風險` |
+| score 60–100 | 高度 | 紅色提醒，加上 `AI-高度風險` |
+
+高風險只會加標籤。黑客松版本不會永久刪除、移出收件匣或移至垃圾桶。
+
+模型輸出的 softmax 不是經過本專案校準的惡意機率。`99%` 只代表模型輸出，不代表實際有 99% 機率是 phishing。
+
+## 預設模型
+
+```text
+songhieng/chn-roberta-phishing-content-detector-1.0
+```
+
+模型沒有提供 label mapping，本專案依本機控制案例明確設定：
+
+```env
+SLM_PHISHING_LABEL=LABEL_1
+```
+
+這是 Demo 設定，不是作者提供的正式定義。模型的測試紀錄與限制位於：
+
+```text
+docs/model-smoke-test-chn-roberta.md
+```
+
+模型只能處理 512 tokens。`SLMDetector` 會將長郵件切成多段並保留最後一段，避免只分析郵件開頭。每一段依序放入本文、主旨、URL 與附件名稱；整封郵件取 phishing probability 最高的一段。寄件者、Reply-To 及 SPF／DKIM／DMARC 保留在標準化資料中，不混入這個未知訓練格式的文字分類器。
+
+## 安裝
+
+需求：Python 3.11 以上。專案目前以 Windows 本機展示為主要環境。
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
+python -m pip install -r requirements-slm.txt
 Copy-Item .env.example .env
-python 智慧郵件防護系統.py
 ```
 
-若要使用 AI，在 `.env` 或系統環境變數設定 `OPENAI_API_KEY`。請勿將金鑰寫進 Android App。
+第一次分析會從 Hugging Face 下載模型。預設權重約 499 MB。
 
-### 使用本機 SLM Detector
-
-SLM 模式不會把郵件內容傳送給 OpenAI。先安裝額外相依套件：
+啟動：
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-slm.txt
+python -m uvicorn mail_guard.api:app --host 127.0.0.1 --port 8000
 ```
 
-接著在 `.env` 設定：
+網址：
 
-```env
-ANALYZER_BACKEND=slm
-SLM_MODEL=MoritzLaurer/multilingual-MiniLMv2-L6-mnli-xnli
-SLM_MAX_CHARS=6000
-```
-
-第一次分析時會從 Hugging Face 下載模型並快取；之後可離線執行。`SLM_MODEL`
-也可以改成本機模型資料夾。若要切回原本行為，將 `ANALYZER_BACKEND` 設為
-`auto`；其他可用值為 `openai` 與 `local`。
-
-### 使用 Gemini＋SLM 雙模型判斷
-
-雙模型模式會同時執行本機 SLM 與 Gemini，只有兩者都判定為明確惡意且分數
-達 85，才會把 Gmail 郵件移至垃圾桶；其中一個模型失效或兩者意見不一致時，
-最多標記為紅色高度風險，不會自動清理。垃圾桶郵件仍可由使用者復原。
-
-安裝相依套件：
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-hybrid.txt
-```
-
-在 `.env` 設定：
-
-```env
-ANALYZER_BACKEND=hybrid
-GEMINI_API_KEY=你的_Gemini_API_Key
-GEMINI_MODEL=gemini-3.5-flash-lite
-SLM_MODEL=MoritzLaurer/multilingual-MiniLMv2-L6-mnli-xnli
-```
-
-此模式會將郵件主旨、寄件者、本文及安全中繼資料傳送至 Gemini API，請先確認
-使用者同意與資料處理規範。API Key 只能放在 `.env`，不得放入 Android App、Git
-或聊天訊息。
-
-啟動後開啟：
-
+- 防護介面：`http://127.0.0.1:8000/`
 - API 文件：`http://127.0.0.1:8000/docs`
 - 健康檢查：`http://127.0.0.1:8000/health`
 
-## 測試單封郵件
+## 設定
 
-即使沒有 OpenAI 金鑰，也可以使用本機展示模式：
+`.env` 的 SLM 設定：
 
-```powershell
-$body = @{
-  provider = "demo"
-  message_id = "demo-1"
-  sender = "security@example.net"
-  reply_to = "steal@example.org"
-  subject = "帳戶即將停用"
-  body_text = "請立即登入並點擊連結驗證帳戶"
-  links = @("https://suspicious.example.org/login")
-  attachment_names = @()
-} | ConvertTo-Json
-
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://127.0.0.1:8000/api/analyze `
-  -ContentType "application/json" `
-  -Body $body
+```env
+ANALYZER_BACKEND=slm
+SLM_MODEL=songhieng/chn-roberta-phishing-content-detector-1.0
+SLM_PHISHING_LABEL=LABEL_1
+SLM_MIN_CONFIDENCE=0.75
+SLM_MAX_CHARS=6000
+SLM_MAX_SEGMENTS=8
 ```
 
-## Android 串接方式
+- `SLM_MIN_CONFIDENCE`：低於此值時標成不確定，範圍為 0.5–1.0。
+- `SLM_MAX_CHARS`：單封郵件最多分析的本文字元數。
+- `SLM_MAX_SEGMENTS`：最多送進模型的分段數；超過時保留前段及最後一段。
 
-Android 將郵件轉成 `NormalizedEmail` JSON 後呼叫：
+`ANALYZER_BACKEND` 也保留 `local`、`openai`、`gemini` 作獨立分析器，但不會彼此合併。OpenAI 與 Gemini 分別需要安裝 `requirements-openai.txt`、`requirements-gemini.txt`；預設 SLM 環境不會安裝這兩個雲端 SDK。
+
+## Google OAuth 與 Gmail
+
+在 `.env` 設定 Google Cloud 網頁應用程式 OAuth 用戶端：
+
+```env
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=http://127.0.0.1:8000/auth/google/callback
+```
+
+需要的 Gmail scope：
+
+```text
+https://www.googleapis.com/auth/gmail.modify
+```
+
+登入入口：
+
+```text
+http://127.0.0.1:8000/auth/google/start
+```
+
+Google Token、背景防護開關及已處理郵件 ID 會寫入 `.mailguard_state.bin`，並由 Windows DPAPI 加密。這套持久化方式目前只支援 Windows。
+
+## API
+
+分析單封標準化郵件：
 
 ```http
 POST /api/analyze
 Content-Type: application/json
 ```
 
-回傳的 `decision.color` 會是 `null`、`yellow` 或 `red`；Android UI 只負責依結果顯示，不需要包含 AI 程式或 OpenAI 金鑰。
-
-黑客松版本也提供 Gmail 整批掃描：
+掃描已登入的 Gmail：
 
 ```http
-POST /api/gmail/scan
-X-Gmail-Access-Token: <Google OAuth access token>
+POST /api/gmail/scan-connected
 Content-Type: application/json
 
 {"max_results": 10}
 ```
 
-Google OAuth 至少需要能讀取及修改郵件／標籤的 Gmail 權限。正式產品不可長期由 Android 傳遞 access token，應改成後端 OAuth callback、加密 token vault，以及你自己的使用者驗證。
+`POST /api/gmail/scan` 接受 `X-Gmail-Access-Token`，只供原型測試。正式產品應由後端管理 Token，並加入使用者驗證與權限隔離。
+
+## 背景防護
+
+登入 Gmail 後可在首頁開啟背景 polling。預設每 5 分鐘查看最新 20 封收件匣郵件，只處理尚未記錄的 message ID。
+
+```env
+BACKGROUND_SCAN_SECONDS=300
+BACKGROUND_SCAN_LIMIT=20
+```
 
 ## 測試
 
@@ -151,42 +177,13 @@ Google OAuth 至少需要能讀取及修改郵件／標籤的 Gmail 權限。正
 python -m unittest discover -s tests -v
 ```
 
-OpenAI 實作使用 Responses API、`store=False` 與 JSON Schema Structured Outputs。官方文件：<https://developers.openai.com/api/reference/cli/resources/responses/methods/create>
+測試使用 fake classifier，不需要下載模型。實機模型測試的環境、案例與結果另記錄於 `docs/model-smoke-test-chn-roberta.md`。
 
-## Google OAuth 登入
+## 已知限制
 
-在 `.env` 設定 Google Cloud 網頁應用程式用戶端：
-
-```env
-GOOGLE_CLIENT_ID=你的Web用戶端ID
-GOOGLE_CLIENT_SECRET=你的Web用戶端密碼
-GOOGLE_REDIRECT_URI=http://127.0.0.1:8000/auth/google/callback
-```
-
-重新啟動後開啟：
-
-```text
-http://127.0.0.1:8000/auth/google/start
-```
-
-授權完成後，到 `/docs` 呼叫 `POST /api/gmail/scan-connected`。Google Token 會使用
-Windows 使用者層級加密後保存在本機；正式產品仍應改用專用的加密資料庫或秘密管理服務。
-
-## 智慧郵件背景防護
-
-登入 Gmail 後，可在首頁開啟「智慧郵件背景防護」。啟用後系統預設每 5 分鐘
-檢查一次最新郵件，只分析尚未處理的郵件；手動掃描功能仍可照常使用。
-
-開關、已處理郵件識別碼及 OAuth Token 會儲存在專案根目錄的
-`.mailguard_state.bin`。該檔案使用 Windows DPAPI 綁定目前的 Windows 使用者進行
-加密，已列入 `.gitignore`，不得傳送給其他人。程式重新啟動後會恢復原本的開關
-狀態並繼續執行；若登出 Gmail，背景防護會一併停用。
-
-可在 `.env` 調整執行頻率與每次查看的郵件數量：
-
-```env
-BACKGROUND_SCAN_SECONDS=300
-BACKGROUND_SCAN_LIMIT=20
-```
-
-背景掃描最短間隔為 30 秒，每次最多查看 50 封郵件。
+- 預設模型沒有公開訓練資料、label mapping 或 license。
+- 本機 smoke test 曾出現高信心誤判，尤其是中英混合郵件。
+- 分段可減少截斷，但多段取最高值可能增加 false positive。
+- Gmail parser 主要擷取 `text/plain`；HTML-only 郵件可能漏掉內容。
+- Web UI 顯示停用連結與附件的建議，但 Gmail 本身不會禁止使用者操作。
+- 沒有 Android App、正式帳號系統、HTTPS 部署與多使用者隔離。

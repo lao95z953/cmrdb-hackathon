@@ -50,7 +50,7 @@ class GeminiEmailAnalyzer:
             except ImportError as exc:
                 raise RuntimeError(
                     "Gemini 模式需要額外套件，請執行 "
-                    "pip install -r requirements-hybrid.txt"
+                    "pip install -r requirements-gemini.txt"
                 ) from exc
             self._client = genai.Client(
                 api_key=self.api_key,

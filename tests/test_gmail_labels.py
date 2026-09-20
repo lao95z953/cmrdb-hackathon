@@ -32,32 +32,32 @@ class FakeClient:
         return None
 
     async def get(self, url, **kwargs):
-        return FakeResponse({"labels": [{"id": "label-1", "name": "AI-明確垃圾"}]})
+        return FakeResponse({"labels": [{"id": "label-1", "name": "AI-不確定"}]})
 
     async def post(self, url, **kwargs):
         self.posts.append((url, kwargs))
         return FakeResponse()
 
 
-class GmailCleanupTests(unittest.IsolatedAsyncioTestCase):
-    async def test_blocked_mail_is_labeled_then_moved_to_trash(self):
+class GmailLabelTests(unittest.IsolatedAsyncioTestCase):
+    async def test_uncertain_mail_is_labeled_without_moving_to_trash(self):
         client = FakeClient()
         decision = ProtectionDecision(
-            level=RiskLevel.BLOCKED,
-            action=RecommendedAction.QUARANTINE,
-            color="red",
+            level=RiskLevel.UNCERTAIN,
+            action=RecommendedAction.WARN,
+            color="yellow",
             warning="test",
-            links_enabled=False,
-            attachments_enabled=False,
+            links_enabled=True,
+            attachments_enabled=True,
         )
         with patch("mail_guard.email.gmail.httpx.AsyncClient", return_value=client):
             await GmailConnector("token").apply_decision(
                 NormalizedEmail(message_id="message-1"), decision
             )
 
+        self.assertEqual(len(client.posts), 1)
         self.assertTrue(client.posts[0][0].endswith("/message-1/modify"))
         self.assertEqual(client.posts[0][1]["json"], {"addLabelIds": ["label-1"]})
-        self.assertTrue(client.posts[1][0].endswith("/message-1/trash"))
 
 
 if __name__ == "__main__":

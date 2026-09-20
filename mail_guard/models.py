@@ -9,9 +9,9 @@ from .email_headers import EmailHeaders
 
 class RiskLevel(str, Enum):
     LOW = "low"
+    UNCERTAIN = "uncertain"
     MEDIUM = "medium"
     HIGH = "high"
-    BLOCKED = "blocked"
 
 
 class EmailCategory(str, Enum):
@@ -27,7 +27,6 @@ class RecommendedAction(str, Enum):
     ALLOW = "allow"
     WARN = "warn"
     RESTRICT = "restrict"
-    QUARANTINE = "quarantine"
 
 
 class EmailAuthentication(BaseModel):

@@ -1,0 +1,2 @@
+-r requirements.txt
+google-genai>=2.0,<3

@@ -6,27 +6,28 @@ from .policy import decide_protection
 
 LEVEL_NAMES = {
     RiskLevel.LOW: "低風險",
+    RiskLevel.UNCERTAIN: "不確定",
     RiskLevel.MEDIUM: "中度風險",
     RiskLevel.HIGH: "高風險",
-    RiskLevel.BLOCKED: "明確垃圾或惡意郵件",
 }
 
 LEVEL_REASONS = {
-    RiskLevel.LOW: "分數低於 30，因此正常顯示郵件。",
-    RiskLevel.MEDIUM: "分數介於 30 至 59，因此顯示黃色提醒。",
-    RiskLevel.HIGH: "分數介於 60 至 84，因此顯示紅色警告並停用連結與附件。",
-    RiskLevel.BLOCKED: "分數達到 85 以上，因此加上風險標籤並移至可復原的 Gmail 垃圾桶。",
+    RiskLevel.LOW: "風險分數低於 30，因此正常顯示郵件。",
+    RiskLevel.UNCERTAIN: "模型信任度不足，因此加上不確定標籤並交由使用者判斷。",
+    RiskLevel.MEDIUM: "風險分數介於 30 至 59，因此顯示黃色提醒。",
+    RiskLevel.HIGH: "風險分數達到 60 以上，因此顯示紅色警告並停用連結與附件。",
 }
 
 
 def explain_decision(
     analysis: AnalysisResult, decision: ProtectionDecision
 ) -> AnalysisResult:
-    """把模型訊號與固定風險政策整理成使用者看得懂的原因。"""
+    """把模型訊號、信任度與固定風險政策整理成使用者看得懂的原因。"""
     signals = list(dict.fromkeys(signal.strip() for signal in analysis.signals if signal.strip()))
     evidence = "、".join(signals) if signals else "模型未提供額外的風險訊號"
     explanation = (
-        f"判定為{LEVEL_NAMES[decision.level]}（{analysis.risk_score} 分）。"
+        f"判定為{LEVEL_NAMES[decision.level]}（{analysis.risk_score} 分，"
+        f"信任度 {analysis.confidence:.1%}）。"
         f"判斷原因：{evidence}。"
         f"{LEVEL_REASONS[decision.level]}"
         f"模型說明：{analysis.explanation_zh}"
@@ -35,7 +36,7 @@ def explain_decision(
 
 
 class MailProtectionService:
-    """唯一負責串接郵件模組與 AI 模組的應用層。"""
+    """唯一負責串接郵件模組與 SLM 的應用層。"""
 
     def __init__(self, analyzer: EmailAnalyzer) -> None:
         self.analyzer = analyzer
