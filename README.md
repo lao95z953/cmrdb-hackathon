@@ -73,25 +73,40 @@ docs/model-smoke-test-chn-roberta.md
 
 模型只能處理 512 tokens。`SLMDetector` 會將長郵件切成多段並保留最後一段，避免只分析郵件開頭。每一段依序放入本文、主旨、URL 與附件名稱；整封郵件取 phishing probability 最高的一段。寄件者、Reply-To 及 SPF／DKIM／DMARC 保留在標準化資料中，不混入這個未知訓練格式的文字分類器。
 
-## 安裝
+## 安裝與快速啟動
 
-需求：Python 3.11 以上。專案目前以 Windows 本機展示為主要環境。
+專案目前以 Windows Workstation 展示為主要環境，建議使用 Python 3.12。
+
+### 方式一：Windows 一鍵啟動（推薦）
+
+- Command Prompt：雙擊 `run.bat`，或執行 `.\run.bat`
+- PowerShell：執行 `.\run.ps1`
+
+腳本會建立 `.env`、建立或重用 `.venv`、同步 CPU 版 PyTorch 與其他 dependencies，檢查必要 import 後才啟動服務。已存在的虛擬環境也會同步；任一步失敗就停止，不會帶著不完整環境繼續啟動。
+
+如果系統有 `uv`，腳本會依 `uv.lock` 安裝鎖定版本；否則退回 Python `venv` 與 `pip`。
+
+### 方式二：直接使用 uv
 
 ```powershell
-python -m venv .venv
+uv sync --locked
+Copy-Item .env.example .env  # 已有 .env 時不要覆蓋
+uv run --locked uvicorn mail_guard.api:app --host 127.0.0.1 --port 8000
+```
+
+### 方式三：標準 pip 安裝
+
+`requirements-slm.txt` 已加入 PyTorch CPU package index：
+
+```powershell
+py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
 python -m pip install -r requirements-slm.txt
 Copy-Item .env.example .env
-```
-
-第一次分析會從 Hugging Face 下載模型。預設權重約 499 MB。
-
-啟動：
-
-```powershell
 python -m uvicorn mail_guard.api:app --host 127.0.0.1 --port 8000
 ```
+
+第一次分析會從 Hugging Face 下載約 499 MB 的模型權重。
 
 網址：
 
